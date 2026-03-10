@@ -1,7 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import MetaData
 from sqlalchemy.orm import validates
-from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy_serializer import SerializerMixin
 
 metadata = MetaData(naming_convention={
@@ -10,7 +9,6 @@ metadata = MetaData(naming_convention={
 
 db = SQLAlchemy(metadata=metadata)
 
-
 class Hero(db.Model, SerializerMixin):
     __tablename__ = 'heroes'
 
@@ -18,12 +16,14 @@ class Hero(db.Model, SerializerMixin):
     name = db.Column(db.String)
     super_name = db.Column(db.String)
 
-    # add relationship
-
-    # add serialization rules
+    # Relationship: A Hero has many HeroPowers
+    hero_powers = db.relationship('HeroPower', back_populates='hero', cascade='all, delete-orphan')
+    
+    # Serialization: Exclude hero_powers from the nested hero object to avoid recursion
+    serialize_rules = ('-hero_powers.hero',)
 
     def __repr__(self):
-        return f'<Hero {self.id}>'
+        return f'<Hero {self.id}: {self.super_name}>'
 
 
 class Power(db.Model, SerializerMixin):
@@ -33,14 +33,21 @@ class Power(db.Model, SerializerMixin):
     name = db.Column(db.String)
     description = db.Column(db.String)
 
-    # add relationship
+    # Relationship: A Power has many HeroPowers
+    hero_powers = db.relationship('HeroPower', back_populates='power', cascade='all, delete-orphan')
+    
+    # Serialization: Avoid recursion back to hero_powers
+    serialize_rules = ('-hero_powers.power',)
 
-    # add serialization rules
-
-    # add validation
+    # Validation: description must be present and at least 20 characters long
+    @validates('description')
+    def validate_description(self, key, description):
+        if not description or len(description) < 20:
+            raise ValueError("Description must be present and at least 20 characters long.")
+        return description
 
     def __repr__(self):
-        return f'<Power {self.id}>'
+        return f'<Power {self.id}: {self.name}>'
 
 
 class HeroPower(db.Model, SerializerMixin):
@@ -48,12 +55,24 @@ class HeroPower(db.Model, SerializerMixin):
 
     id = db.Column(db.Integer, primary_key=True)
     strength = db.Column(db.String, nullable=False)
+    # Foreign Keys
+    hero_id = db.Column(db.Integer, db.ForeignKey('heroes.id'), nullable=False)
+    power_id = db.Column(db.Integer, db.ForeignKey('powers.id'), nullable=False)
 
-    # add relationships
+    # Relationships
+    hero = db.relationship('Hero', back_populates='hero_powers')
+    power = db.relationship('Power', back_populates='hero_powers')
 
-    # add serialization rules
+    # Serialization: Exclude hero and power from the nested hero_power object to avoid recursion
+    serialize_rules = ('-hero.hero_powers', '-power.hero_powers',)
 
-    # add validation
+    # Validation: strength must be one of 'Strong', 'Weak', 'Average'
+    @validates('strength')
+    def validate_strength(self, key, strength):
+        allowed = ['Strong', 'Weak', 'Average']
+        if strength not in allowed:
+            raise ValueError("Strength must be one of: 'Strong', 'Weak', 'Average'.")
+        return strength
 
     def __repr__(self):
-        return f'<HeroPower {self.id}>'
+        return f'<HeroPower {self.id}: Hero {self.hero_id} - Power {self.power_id}>'
